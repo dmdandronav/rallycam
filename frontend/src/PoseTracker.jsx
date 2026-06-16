@@ -13,8 +13,8 @@ import { PoseLandmarker, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-
  * gesture-control project instead of a fitness one — same overall structure.
  */
 const EXERCISES = {
-  squat: { label: "Squat (knee angle)", points: [23, 25, 27] }, // hip-knee-ankle
-  bicepCurl: { label: "Bicep curl (elbow angle)", points: [11, 13, 15] }, // shoulder-elbow-wrist
+  freeThrow: { label: "Free throw (shooting elbow)", points: [12, 14, 16] },
+  swingArm: { label: "Swing follow-through (arm)", points: [12, 14, 16] },
 };
 
 function angleBetween(a, b, c) {
@@ -28,11 +28,13 @@ function angleBetween(a, b, c) {
   return (Math.acos(cos) * 180) / Math.PI;
 }
 
-const PoseTracker = forwardRef(function PoseTracker({ exercise = "squat" }, ref) {
+const PoseTracker = forwardRef(function PoseTracker({ exercise = "freeThrow" }, ref) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const landmarkerRef = useRef(null);
   const historyRef = useRef([]); // rolling buffer of { t, angle }
+  const repHistory = useRef([]); // up to 10 most recent rep peak angles
+  const wasBelowRef = useRef(false); // tracks whether angle was previously below 120°
   const [status, setStatus] = useState("loading"); // loading | ready | error
   const [liveAngle, setLiveAngle] = useState(null);
 
@@ -50,6 +52,7 @@ const PoseTracker = forwardRef(function PoseTracker({ exercise = "squat" }, ref)
         avg: angles.reduce((s, a) => s + a, 0) / angles.length,
       };
     },
+    repHistory,
   }));
 
   useEffect(() => {
@@ -115,6 +118,16 @@ const PoseTracker = forwardRef(function PoseTracker({ exercise = "squat" }, ref)
           historyRef.current.push({ t: now, angle });
           // keep last ~5 seconds
           historyRef.current = historyRef.current.filter((p) => now - p.t < 5000);
+
+          // Rep detection: angle rises from < 120° to > 150° → record peak
+          if (angle != null) {
+            if (angle < 120) {
+              wasBelowRef.current = true;
+            } else if (angle > 150 && wasBelowRef.current) {
+              wasBelowRef.current = false;
+              repHistory.current = [...repHistory.current, angle].slice(-10);
+            }
+          }
         }
         ctx.restore();
       }
